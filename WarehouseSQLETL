@@ -1,0 +1,157 @@
+SELECT *
+FROM [dbo].[Test Account Health Spreadsheet]
+
+
+-----------------------------------------------------------
+
+-- Calculate the Approval to Install score
+WITH TempApprovalToInstall AS (
+    SELECT
+        Account_Name AS AccountName,
+        CASE
+            WHEN Install_Certification_Date IS NULL THEN NULL
+            ELSE CONCAT(DATENAME(Month, Install_Certification_Date), ' ', DATEPART(Year, Install_Certification_Date))
+        END AS DateOfInstall,
+        DATEDIFF(Day, Original_Application_Date, Install_Certification_Date) AS ApprovalToInstallTimeline,
+        State
+    FROM [dbo].[Test Account Health Spreadsheet]
+)
+
+SELECT
+    a.AccountName,
+    a.DateOfInstall,
+    a.State,
+    a.ApprovalToInstallTimeline,
+    r.RegionalApprovalToInstall,
+    CASE
+        WHEN a.ApprovalToInstallTimeline IS NULL THEN 4
+        ELSE
+            CASE
+                WHEN a.ApprovalToInstallTimeline / r.RegionalApprovalToInstall > 1.25 THEN 1
+                WHEN a.ApprovalToInstallTimeline / r.RegionalApprovalToInstall < 0.9 THEN 6
+                ELSE 5
+            END
+    END AS ScoreApprovalToInstall
+FROM TempApprovalToInstall a
+LEFT JOIN (
+    SELECT
+        State,
+        DateOfInstall,
+        AVG(ApprovalToInstallTimeline) AS RegionalApprovalToInstall
+    FROM TempApprovalToInstall
+    GROUP BY State, DateOfInstall
+) r ON a.State = r.State AND a.DateOfInstall = r.DateOfInstall;
+
+-----------------------------------------------------------
+
+-- Calculate the Install to Energization score
+WITH TempInstallToEnergization AS (
+    SELECT
+        Account_Name AS AccountName,
+        CASE
+            WHEN Install_Certification_Date IS NULL OR Sungage_Reviewed_PTO IS NULL THEN NULL
+            ELSE CONCAT(DATENAME(Month, Sungage_Reviewed_PTO), ' ', DATEPART(Year, Sungage_Reviewed_PTO))
+        END AS DateOfEnergization, -- Updated column name
+        DATEDIFF(Day, Install_Certification_Date, Sungage_Reviewed_PTO) AS InstallToEnergizationTimeline,
+        State
+    FROM [dbo].[Test Account Health Spreadsheet]
+)
+
+SELECT
+    a.AccountName,
+    a.DateOfEnergization, -- Updated column name
+    a.State,
+    a.InstallToEnergizationTimeline,
+    r.RegionalInstallToEnergization,
+    CASE
+        WHEN a.InstallToEnergizationTimeline IS NULL THEN 4
+        ELSE
+            CASE
+                WHEN a.InstallToEnergizationTimeline / r.RegionalInstallToEnergization > 1.25 THEN 1
+                WHEN a.InstallToEnergizationTimeline / r.RegionalInstallToEnergization < 0.9 THEN 6
+                ELSE 5
+            END
+    END AS ScoreInstallToEnergization
+FROM TempInstallToEnergization a
+LEFT JOIN (
+    SELECT
+        State,
+        DateOfEnergization, -- Updated column name
+        AVG(InstallToEnergizationTimeline) AS RegionalInstallToEnergization
+    FROM TempInstallToEnergization
+    GROUP BY State, DateOfEnergization
+) r ON a.State = r.State AND a.DateOfEnergization = r.DateOfEnergization;
+
+-----------------------------------------------------------
+
+-- Calculate the Approval to Install score
+WITH TempApprovalToInstall AS (
+    SELECT
+        Account_Name AS AccountName,
+        CASE
+            WHEN Install_Certification_Date IS NULL THEN NULL
+            ELSE CONCAT(DATENAME(Month, Install_Certification_Date), ' ', DATEPART(Year, Install_Certification_Date))
+        END AS DateOfInstall,
+        DATEDIFF(Day, Original_Application_Date, Install_Certification_Date) AS ApprovalToInstallTimeline,
+        State
+    FROM [dbo].[Test Account Health Spreadsheet]
+)
+
+-- Calculate the Install to Energization score
+, TempInstallToEnergization AS (
+    SELECT
+        Account_Name AS AccountName,
+        CASE
+            WHEN Install_Certification_Date IS NULL OR Sungage_Reviewed_PTO IS NULL THEN NULL
+            ELSE CONCAT(DATENAME(Month, Sungage_Reviewed_PTO), ' ', DATEPART(Year, Sungage_Reviewed_PTO))
+        END AS DateOfEnergization, -- Updated column name
+        DATEDIFF(Day, Install_Certification_Date, Sungage_Reviewed_PTO) AS InstallToEnergizationTimeline,
+        State
+    FROM [dbo].[Test Account Health Spreadsheet]
+)
+
+-- Combine the results for Approval to Install and Install to Energization
+SELECT
+    a.AccountName,
+    a.DateOfInstall,
+    a.State,
+    a.ApprovalToInstallTimeline,
+    AVG(r1.RegionalApprovalToInstall) AS RegionalApprovalToInstall,
+    CASE
+        WHEN a.ApprovalToInstallTimeline IS NULL THEN 4
+        ELSE
+            CASE
+                WHEN a.ApprovalToInstallTimeline / AVG(r1.RegionalApprovalToInstall) > 1.25 THEN 1
+                WHEN a.ApprovalToInstallTimeline / AVG(r1.RegionalApprovalToInstall) < 0.9 THEN 6
+                ELSE 5
+            END
+    END AS ScoreApprovalToInstall,
+    b.DateOfEnergization, -- Updated column name
+    b.InstallToEnergizationTimeline,
+    AVG(r2.RegionalInstallToEnergization) AS RegionalInstallToEnergization,
+    CASE
+        WHEN b.InstallToEnergizationTimeline IS NULL THEN 4
+        ELSE
+            CASE
+                WHEN b.InstallToEnergizationTimeline / AVG(r2.RegionalInstallToEnergization) > 1.25 THEN 1
+                WHEN b.InstallToEnergizationTimeline / AVG(r2.RegionalInstallToEnergization) < 0.9 THEN 6
+                ELSE 5
+            END
+    END AS ScoreInstallToEnergization
+FROM TempApprovalToInstall a
+INNER JOIN TempInstallToEnergization b ON a.AccountName = b.AccountName AND a.DateOfInstall = b.DateOfEnergization
+LEFT JOIN (
+    SELECT
+        DateOfInstall,
+        AVG(ApprovalToInstallTimeline) AS RegionalApprovalToInstall
+    FROM TempApprovalToInstall
+    GROUP BY DateOfInstall
+) r1 ON a.DateOfInstall = r1.DateOfInstall
+LEFT JOIN (
+    SELECT
+        DateOfEnergization,
+        AVG(InstallToEnergizationTimeline) AS RegionalInstallToEnergization
+    FROM TempInstallToEnergization
+    GROUP BY DateOfEnergization
+) r2 ON b.DateOfEnergization = r2.DateOfEnergization
+GROUP BY a.AccountName, a.DateOfInstall, a.State, a.ApprovalToInstallTimeline, b.DateOfEnergization, b.InstallToEnergizationTimeline;
